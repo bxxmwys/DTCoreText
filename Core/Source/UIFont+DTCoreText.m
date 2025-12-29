@@ -14,18 +14,49 @@
 
 + (UIFont *)fontWithCTFont:(CTFontRef)ctFont
 {
-	NSString *fontName = (__bridge_transfer NSString *)CTFontCopyName(ctFont, kCTFontFullNameKey);
+    if (!ctFont) {
+        return nil;
+    }
 
-	CGFloat fontSize = CTFontGetSize(ctFont);
-	UIFont *font = [UIFont fontWithName:fontName size:fontSize];
+    CGFloat fontSize = CTFontGetSize(ctFont);
+    UIFont *font = nil;
 
-	// fix for missing HelveticaNeue-Italic font in iOS 7.0.x
-	if (!font && [fontName isEqualToString:@"HelveticaNeue-Italic"])
-	{
-		font = [UIFont fontWithName:@"HelveticaNeue-LightItalic" size:fontSize];
-	}
+    // 1) 正确路径：优先使用 PostScript 名
+    NSString *postScriptName = (__bridge_transfer NSString *)CTFontCopyName(ctFont, kCTFontPostScriptNameKey);
+    if (postScriptName.length > 0) {
+        font = [UIFont fontWithName:postScriptName size:fontSize];
+    }
 
-	return font;
+    // 2) 兼容：若上面失败，再尝试 FullName（某些系统字体/老实现可能靠这个“碰巧”成功）
+    if (!font) {
+        NSString *fullName = (__bridge_transfer NSString *)CTFontCopyName(ctFont, kCTFontFullNameKey);
+        if (fullName.length > 0) {
+            font = [UIFont fontWithName:fullName size:fontSize];
+        }
+    }
+
+    // 3) 兜底：用 CTFontDescriptor 的 attributes 生成 UIFontDescriptor
+    if (!font) {
+        CTFontDescriptorRef ctDesc = CTFontCopyFontDescriptor(ctFont);
+        if (ctDesc) {
+            NSDictionary *attrs = (__bridge_transfer NSDictionary *)CTFontDescriptorCopyAttributes(ctDesc);
+            CFRelease(ctDesc);
+
+            if (attrs.count > 0) {
+                UIFontDescriptor *uiDesc = [UIFontDescriptor fontDescriptorWithFontAttributes:attrs];
+                if (uiDesc) {
+                    font = [UIFont fontWithDescriptor:uiDesc size:fontSize];
+                }
+            }
+        }
+    }
+
+    // 4) 最终兜底：保证永不返回 nil，避免外部字典崩溃
+    if (!font) {
+        font = [UIFont systemFontOfSize:fontSize];
+    }
+
+    return font;
 }
 
 @end
